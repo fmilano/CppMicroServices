@@ -37,6 +37,8 @@
 #include "CMLogger.hpp"
 #include "ConfigurationAdminImpl.hpp"
 
+#include "cppmicroservices/asyncworkservice/AsyncWorkService.hpp"
+
 namespace cppmicroservices {
 namespace cmimpl {
 class CMActivator final : public cppmicroservices::BundleActivator
@@ -80,6 +82,8 @@ private:
   cppmicroservices::ServiceRegistration<
     cppmicroservices::service::cm::ConfigurationAdmin>
     configAdminReg;
+  std::shared_ptr<::cppmicroservices::async::detail::AsyncWorkService>
+    asyncWorkService;
 };
 } // cmimpl
 } // cppmicroservices

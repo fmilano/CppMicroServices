@@ -29,6 +29,7 @@
 #include "cppmicroservices/BundleActivator.h"
 #include "cppmicroservices/BundleContext.h"
 #include "cppmicroservices/BundleEvent.h"
+#include "cppmicroservices/asyncworkservice/AsyncWorkService.hpp"
 #include "cppmicroservices/servicecomponent/runtime/ServiceComponentRuntime.hpp"
 #include <map>
 #include <vector>
@@ -77,6 +78,8 @@ private:
   std::shared_ptr<SCRLogger> logger;
   ListenerToken bundleListenerToken;
   std::shared_ptr<boost::asio::thread_pool> threadpool;
+  std::shared_ptr<::cppmicroservices::async::detail::AsyncWorkService>
+    asyncWorkService;
 };
 } // scrimpl
 } // cppmicroservices

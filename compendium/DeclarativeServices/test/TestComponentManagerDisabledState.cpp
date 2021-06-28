@@ -26,6 +26,7 @@
 #include "cppmicroservices/Framework.h"
 #include "cppmicroservices/FrameworkEvent.h"
 #include "cppmicroservices/FrameworkFactory.h"
+#include "cppmicroservices/asyncworkservice/AsyncWorkService.hpp"
 
 namespace cppmicroservices {
 namespace scrimpl {
@@ -44,9 +45,15 @@ protected:
     auto fakeLogger = std::make_shared<FakeLogger>();
     auto compDesc = std::make_shared<metadata::ComponentMetadata>();
     auto mockRegistry = std::make_shared<MockComponentRegistry>();
-    auto pool = std::make_shared<boost::asio::thread_pool>(1);
-    compMgr = std::make_shared<MockComponentManagerImpl>(
-      compDesc, mockRegistry, framework.GetBundleContext(), fakeLogger, pool);
+    auto pool = nullptr; //std::make_shared<boost::asio::thread_pool>(1);
+    auto asyncWorkService = std::make_shared<AsyncWorkServiceImpl>();
+    compMgr =
+      std::make_shared<MockComponentManagerImpl>(compDesc,
+                                                 mockRegistry,
+                                                 framework.GetBundleContext(),
+                                                 fakeLogger,
+                                                 pool,
+                                                 asyncWorkService);
   }
 
   virtual void TearDown()

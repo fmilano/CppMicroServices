@@ -70,17 +70,26 @@ TEST_F(SCRBundleExtensionTest, CtorInvalidArgs)
     cppmicroservices::AnyMap::UNORDERED_MAP_CASEINSENSITIVE_KEYS);
   auto mockRegistry = std::make_shared<MockComponentRegistry>();
   auto fakeLogger = std::make_shared<FakeLogger>();
-  auto pool = std::make_shared<boost::asio::thread_pool>(1);
+  auto pool = nullptr; //std::make_shared<boost::asio::thread_pool>(1);
+  auto asyncWorkService = std::make_shared<AsyncWorkServiceImpl>();
   EXPECT_THROW(
     {
-      SCRBundleExtension bundleExt(
-        BundleContext(), headers, mockRegistry, fakeLogger, pool);
+      SCRBundleExtension bundleExt(BundleContext(),
+                                   headers,
+                                   mockRegistry,
+                                   fakeLogger,
+                                   pool,
+                                   asyncWorkService);
     },
     std::invalid_argument);
   EXPECT_THROW(
     {
-      SCRBundleExtension bundleExt(
-        GetFramework().GetBundleContext(), headers, nullptr, fakeLogger, pool);
+      SCRBundleExtension bundleExt(GetFramework().GetBundleContext(),
+                                   headers,
+                                   nullptr,
+                                   fakeLogger,
+                                   pool,
+                                   asyncWorkService);
     },
     std::invalid_argument);
   EXPECT_THROW(
@@ -89,7 +98,8 @@ TEST_F(SCRBundleExtensionTest, CtorInvalidArgs)
                                    headers,
                                    mockRegistry,
                                    nullptr,
-                                   pool);
+                                   pool,
+                                   asyncWorkService);
     },
     std::invalid_argument);
   EXPECT_THROW(
@@ -98,7 +108,8 @@ TEST_F(SCRBundleExtensionTest, CtorInvalidArgs)
                                    headers,
                                    mockRegistry,
                                    fakeLogger,
-                                   pool);
+                                   pool,
+                                   asyncWorkService);
     },
     std::invalid_argument);
 }
@@ -123,15 +134,24 @@ TEST_F(SCRBundleExtensionTest, CtorWithValidArgs)
     .WillOnce(testing::Return(true));
   EXPECT_CALL(*mockRegistry, RemoveComponentManager(testing::_)).Times(1);
   auto fakeLogger = std::make_shared<FakeLogger>();
-  auto pool = std::make_shared<boost::asio::thread_pool>(1);
+  auto pool = nullptr; //std::make_shared<boost::asio::thread_pool>(1);
+  auto asyncWorkService = std::make_shared<AsyncWorkServiceImpl>();
   EXPECT_NO_THROW({
-    SCRBundleExtension bundleExt(
-      GetFramework().GetBundleContext(), scr, mockRegistry, fakeLogger, pool);
+    SCRBundleExtension bundleExt(GetFramework().GetBundleContext(),
+                                 scr,
+                                 mockRegistry,
+                                 fakeLogger,
+                                 pool,
+                                 asyncWorkService);
     EXPECT_EQ(bundleExt.managers.size(), 0u);
   });
   EXPECT_NO_THROW({
-    SCRBundleExtension bundleExt(
-      GetFramework().GetBundleContext(), scr, mockRegistry, fakeLogger, pool);
+    SCRBundleExtension bundleExt(GetFramework().GetBundleContext(),
+                                 scr,
+                                 mockRegistry,
+                                 fakeLogger,
+                                 pool,
+                                 asyncWorkService);
     EXPECT_EQ(bundleExt.managers.size(), 1u);
   });
 }

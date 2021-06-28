@@ -40,6 +40,8 @@
 #include "ConfigurationAdminPrivate.hpp"
 #include "ConfigurationImpl.hpp"
 
+#include "cppmicroservices/asyncworkservice/AsyncWorkService.hpp"
+
 namespace cppmicroservices {
 namespace cmimpl {
 
@@ -87,7 +89,9 @@ class ConfigurationAdminImpl final
 public:
   ConfigurationAdminImpl(
     cppmicroservices::BundleContext cmContext,
-    std::shared_ptr<cppmicroservices::logservice::LogService> logger);
+    std::shared_ptr<cppmicroservices::logservice::LogService> logger,
+    std::shared_ptr<::cppmicroservices::async::detail::AsyncWorkService>
+      asyncWorkService);
   ~ConfigurationAdminImpl() override;
   ConfigurationAdminImpl(const ConfigurationAdminImpl&) = delete;
   ConfigurationAdminImpl& operator=(const ConfigurationAdminImpl&) = delete;
@@ -235,6 +239,9 @@ private:
     TrackedServiceWrapper<cppmicroservices::service::cm::ManagedServiceFactory>>
     managedServiceFactoryTracker;
   std::mt19937 randomGenerator;
+
+  std::shared_ptr<::cppmicroservices::async::detail::AsyncWorkService>
+    asyncWorkService;
 };
 } // cmimpl
 } // cppmicroservices

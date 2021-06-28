@@ -31,6 +31,8 @@
 #endif
 #include "ComponentManager.hpp"
 #include "cppmicroservices/BundleContext.h"
+
+#include "cppmicroservices/asyncworkservice/AsyncWorkService.hpp"
 #include "cppmicroservices/logservice/LogService.hpp"
 
 namespace cppmicroservices {
@@ -52,7 +54,9 @@ public:
     std::shared_ptr<const ComponentRegistry> registry,
     cppmicroservices::BundleContext bundleContext,
     std::shared_ptr<cppmicroservices::logservice::LogService> logger,
-    std::shared_ptr<boost::asio::thread_pool> threadpool);
+    std::shared_ptr<boost::asio::thread_pool> threadpool,
+    std::shared_ptr<::cppmicroservices::async::detail::AsyncWorkService>
+      asyncWorkService);
   ComponentManagerImpl(const ComponentManagerImpl&) = delete;
   ComponentManagerImpl(ComponentManagerImpl&&) = delete;
   ComponentManagerImpl& operator=(const ComponentManagerImpl&) = delete;
@@ -194,6 +198,8 @@ private:
   std::vector<std::shared_future<void>>
     disableFutures; ///< futures created when the component transitioned to \c DISABLED state
   std::mutex futuresMutex; ///< mutex to protect the #disableFutures member
+  std::shared_ptr<cppmicroservices::async::detail::AsyncWorkService>
+    asyncWorkService;
   std::shared_ptr<boost::asio::thread_pool>
     threadpool; ///< thread pool used to execute async work
   std::mutex

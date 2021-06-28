@@ -167,7 +167,9 @@ namespace cmimpl {
 
 ConfigurationAdminImpl::ConfigurationAdminImpl(
   cppmicroservices::BundleContext context,
-  std::shared_ptr<cppmicroservices::logservice::LogService> lggr)
+  std::shared_ptr<cppmicroservices::logservice::LogService> lggr,
+  std::shared_ptr<::cppmicroservices::async::detail::AsyncWorkService>
+    asyncWorkService)
   : cmContext(std::move(context))
   , logger(std::move(lggr))
   , futuresID{ 0u }
@@ -175,6 +177,8 @@ ConfigurationAdminImpl::ConfigurationAdminImpl(
   , managedServiceFactoryTracker(cmContext, this)
   , randomGenerator(std::random_device{}())
 {
+  this->asyncWorkService = asyncWorkService;
+
   managedServiceTracker.Open();
   managedServiceFactoryTracker.Open();
 }
@@ -590,6 +594,7 @@ ConfigurationAdminImpl::AddingService(
           AnyMap{ AnyMap::UNORDERED_MAP_CASEINSENSITIVE_KEYS }));
     }
   }
+
   PerformAsync([this, pid, managedService] {
     AnyMap properties{ AnyMap::UNORDERED_MAP_CASEINSENSITIVE_KEYS };
     {
@@ -718,12 +723,32 @@ void ConfigurationAdminImpl::RemovedService(
 template<typename Functor>
 void ConfigurationAdminImpl::PerformAsync(Functor&& f)
 {
-  std::lock_guard<std::mutex> lk{ futuresMutex };
-  decltype(completeFutures){}.swap(completeFutures);
-  auto id = ++futuresID;
+  uint64_t id;
+  {
+    std::lock_guard<std::mutex> lk{ futuresMutex };
+    decltype(completeFutures){}.swap(completeFutures);
+    id = ++futuresID;
+  }
+
+  /*
   incompleteFutures.emplace(
     id,
-    std::async(std::launch::async, [this, func = std::forward<Functor>(f), id] {
+    asyncWorkService->post(
+      [this, func = std::forward<Functor>(f), id]() mutable {
+        func();
+        std::lock_guard<std::mutex> lk{ futuresMutex };
+        auto it = incompleteFutures.find(id);
+        assert(it != std::end(incompleteFutures) && "Invalid future iterator");
+        completeFutures.push_back(std::move(it->second));
+        incompleteFutures.erase(it);
+        if (incompleteFutures.empty()) {
+          futuresCV.notify_one();
+        }
+      }));
+  */
+
+  std::packaged_task<void()> task(
+    [this, func = std::forward<Functor>(f), id]() mutable {
       func();
       std::lock_guard<std::mutex> lk{ futuresMutex };
       auto it = incompleteFutures.find(id);
@@ -733,7 +758,14 @@ void ConfigurationAdminImpl::PerformAsync(Functor&& f)
       if (incompleteFutures.empty()) {
         futuresCV.notify_one();
       }
-    }));
+    });
+
+  std::future<void> fut = task.get_future();
+  {
+    std::lock_guard<std::mutex> lk{ futuresMutex };
+    incompleteFutures.emplace(id, std::move(fut));
+  }
+  asyncWorkService->post(std::move(task));
 }
 
 std::string ConfigurationAdminImpl::RandomInstanceName()

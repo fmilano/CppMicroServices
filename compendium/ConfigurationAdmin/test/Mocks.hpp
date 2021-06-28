@@ -31,8 +31,100 @@
 
 #include "../src/ConfigurationAdminPrivate.hpp"
 
+#include "cppmicroservices/asyncworkservice/AsyncWorkService.hpp"
+
+#include "boost/asio/async_result.hpp"
+#include "boost/asio/packaged_task.hpp"
+#include "boost/asio/post.hpp"
+#include "boost/asio/thread_pool.hpp"
+
 namespace cppmicroservices {
 namespace cmimpl {
+
+#define ASYNC_USE_INLINE
+
+class AsyncWorkServiceImpl final
+  : public ::cppmicroservices::async::detail::AsyncWorkService
+{
+public:
+  AsyncWorkServiceImpl()
+  {
+#if defined(ASYNC_USE_THREADPOOL)
+    threadpool = std::make_shared<boost::asio::thread_pool>(1);
+#endif
+  }
+
+  ~AsyncWorkServiceImpl()
+  {
+#if defined(ASYNC_USE_THREADPOOL)
+    try {
+      if (threadpool) {
+        try {
+          threadpool->join();
+        } catch (...) {
+          //
+        }
+      }
+    } catch (...) {
+      //
+    }
+#endif
+  }
+
+  std::future<void> post(std::function<void()>&& task) override
+  {
+#if defined(ASYNC_USE_INLINE)
+    std::packaged_task<void()> pt([](){});
+    std::future<void> f = pt.get_future();
+    task();
+    pt();
+    return f;
+#elif defined(ASYNC_USE_ASYNC)
+    std::future<void> f = std::async(std::launch::async, task);
+    return f;
+#elif defined(ASYNC_USE_THREADPOOL)
+    std::packaged_task<void()> pt(
+      [task = std::move(task)]() mutable { task(); });
+
+    using Sig = void();
+    using Result = boost::asio::async_result<decltype(pt), Sig>;
+    using Handler = typename Result::completion_handler_type;
+
+    Handler handler(std::forward<decltype(pt)>(pt));
+    Result result(handler);
+
+    boost::asio::post(threadpool->get_executor(),
+                      [handler = std::move(handler)]() mutable { handler(); });
+
+    return result.get();
+#endif
+  }
+
+  void post(std::packaged_task<void()>&& task) override
+  {
+#if defined(ASYNC_USE_INLINE)
+    task();
+#elif defined(ASYNC_USE_ASYNC)
+    std::future<void> f = std::async(
+      std::launch::async, [task = std::move(task)]() mutable { task(); });
+#elif defined(ASYNC_USE_THREADPOOL)
+    using Sig = void();
+    using Result = boost::asio::async_result<decltype(task), Sig>;
+    using Handler = typename Result::completion_handler_type;
+
+    Handler handler(std::forward<decltype(task)>(task));
+    Result result(handler);
+
+    boost::asio::post(threadpool->get_executor(),
+                      [handler = std::move(handler)]() mutable { handler(); });
+#endif
+  }
+
+#if defined(ASYNC_USE_THREADPOOL)
+private:
+  std::shared_ptr<boost::asio::thread_pool> threadpool;
+#endif
+};
 
 /**
  * This class is used in tests where the logger is required and the test

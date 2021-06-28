@@ -42,13 +42,15 @@ SCRBundleExtension::SCRBundleExtension(
   const cppmicroservices::AnyMap& scrMetadata,
   const std::shared_ptr<ComponentRegistry>& registry,
   const std::shared_ptr<LogService>& logger,
-  const std::shared_ptr<boost::asio::thread_pool>& threadpool)
+  const std::shared_ptr<boost::asio::thread_pool>& threadpool,
+  const std::shared_ptr<::cppmicroservices::async::detail::AsyncWorkService>&
+    asyncWorkService)
   : bundleContext(bundleContext)
   , registry(registry)
   , logger(logger)
 {
-  if (!bundleContext || !registry || !logger || scrMetadata.empty() ||
-      !threadpool) {
+  if (!bundleContext || !registry || !logger || scrMetadata.empty()) { // ||
+    //!threadpool) {
     throw std::invalid_argument(
       "Invalid parameters passed to SCRBundleExtension constructor");
   }
@@ -61,8 +63,13 @@ SCRBundleExtension::SCRBundleExtension(
     metadataparser->ParseAndGetComponentsMetadata(scrMetadata);
   for (auto& oneCompMetadata : componentsMetadata) {
     try {
-      auto compManager = std::make_shared<ComponentManagerImpl>(
-        oneCompMetadata, registry, bundleContext, logger, threadpool);
+      auto compManager =
+        std::make_shared<ComponentManagerImpl>(oneCompMetadata,
+                                               registry,
+                                               bundleContext,
+                                               logger,
+                                               threadpool,
+                                               asyncWorkService);
       if (registry->AddComponentManager(compManager)) {
         managers.push_back(compManager);
         compManager->Initialize();

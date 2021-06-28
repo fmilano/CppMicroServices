@@ -40,6 +40,10 @@
 
 #include "cppmicroservices/detail/ScopeGuard.h"
 
+#include "boost/asio/async_result.hpp"
+#include "boost/asio/packaged_task.hpp"
+#include "boost/asio/post.hpp"
+
 using cppmicroservices::logservice::SeverityLevel;
 using cppmicroservices::service::component::ComponentConstants::
   SERVICE_COMPONENT;
@@ -47,12 +51,100 @@ using cppmicroservices::service::component::ComponentConstants::
 namespace cppmicroservices {
 namespace scrimpl {
 
+#define ASYNC_USE_INLINE
+
+class AsyncWorkServiceImpl final
+  : public ::cppmicroservices::async::detail::AsyncWorkService
+{
+public:
+  AsyncWorkServiceImpl()
+  {
+#if defined(ASYNC_USE_THREADPOOL)
+    threadpool = std::make_shared<boost::asio::thread_pool>(1);
+#endif
+  }
+
+  ~AsyncWorkServiceImpl()
+  {
+#if defined(ASYNC_USE_THREADPOOL)
+    try {
+      if (threadpool) {
+        try {
+          threadpool->join();
+        } catch (...) {
+          //
+        }
+      }
+    } catch (...) {
+      //
+    }
+#endif
+  }
+
+  std::future<void> post(std::function<void()>&& task) override
+  {
+#if defined(ASYNC_USE_INLINE)
+    std::packaged_task<void()> pt([](){});
+    std::future<void> f = pt.get_future();
+    task();
+    pt();
+    return f;
+#elif defined(ASYNC_USE_ASYNC)
+    std::future<void> f = std::async(std::launch::async, task);
+    return f;
+#elif defined(ASYNC_USE_THREADPOOL)
+    std::packaged_task<void()> pt(
+      [task = std::move(task)]() mutable { task(); });
+
+    using Sig = void();
+    using Result = boost::asio::async_result<decltype(pt), Sig>;
+    using Handler = typename Result::completion_handler_type;
+
+    Handler handler(std::forward<decltype(pt)>(pt));
+    Result result(handler);
+
+    boost::asio::post(threadpool->get_executor(),
+                      [handler = std::move(handler)]() mutable { handler(); });
+
+    return result.get();
+#endif
+  }
+
+  void post(std::packaged_task<void()>&& task) override
+  {
+#if defined(ASYNC_USE_INLINE)
+    task();
+#elif defined(ASYNC_USE_ASYNC)
+    std::future<void> f = std::async(
+      std::launch::async, [task = std::move(task)]() mutable { task(); });
+#elif defined(ASYNC_USE_THREADPOOL)
+    using Sig = void();
+    using Result = boost::asio::async_result<decltype(task), Sig>;
+    using Handler = typename Result::completion_handler_type;
+
+    Handler handler(std::forward<decltype(task)>(task));
+    Result result(handler);
+
+    boost::asio::post(threadpool->get_executor(),
+                      [handler = std::move(handler)]() mutable { handler(); });
+#endif
+  }
+
+#if defined(ASYNC_USE_THREADPOOL)
+private:
+  std::shared_ptr<boost::asio::thread_pool> threadpool;
+#endif
+};
+
 void SCRActivator::Start(BundleContext context)
 {
   runtimeContext = context;
 
   // limit the number of threads to 2. There is currently no use case to warrant increasing it.
-  threadpool = std::make_shared<boost::asio::thread_pool>(2);
+  //threadpool = std::make_shared<boost::asio::thread_pool>(2);
+  threadpool = nullptr;
+
+  asyncWorkService = std::make_shared<AsyncWorkServiceImpl>();
 
   // Create the component registry
   componentRegistry = std::make_shared<ComponentRegistry>();
@@ -147,7 +239,8 @@ void SCRActivator::CreateExtension(const cppmicroservices::Bundle& bundle)
                                                      scrMap,
                                                      componentRegistry,
                                                      logger,
-                                                     threadpool);
+                                                     threadpool,
+                                                     asyncWorkService);
       {
         std::lock_guard<std::mutex> l(bundleRegMutex);
         bundleRegistry.insert(

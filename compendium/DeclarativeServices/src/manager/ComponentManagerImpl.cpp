@@ -41,7 +41,9 @@ ComponentManagerImpl::ComponentManagerImpl(
   std::shared_ptr<const ComponentRegistry> registry,
   BundleContext bundleContext,
   std::shared_ptr<cppmicroservices::logservice::LogService> logger,
-  std::shared_ptr<boost::asio::thread_pool> threadpool)
+  std::shared_ptr<boost::asio::thread_pool> threadpool,
+  std::shared_ptr<::cppmicroservices::async::detail::AsyncWorkService>
+    asyncWorkService)
   : registry(std::move(registry))
   , compDesc(std::move(metadata))
   , bundleContext(std::move(bundleContext))
@@ -49,8 +51,10 @@ ComponentManagerImpl::ComponentManagerImpl(
   , state(std::make_shared<CMDisabledState>())
   , threadpool(threadpool)
 {
-  if (!compDesc || !this->registry || !this->bundleContext || !this->logger ||
-      !this->threadpool) {
+  this->asyncWorkService = asyncWorkService;
+  if (!compDesc || !this->registry || !this->bundleContext ||
+      !this->logger) { //||
+    //!this->threadpool) {
     throw std::invalid_argument(
       "Invalid arguments to ComponentManagerImpl constructor");
   }
@@ -78,6 +82,10 @@ void ComponentManagerImpl::Initialize()
       fut.get();
     } catch (const cppmicroservices::SharedLibraryException&) {
       throw;
+    } catch (const std::future_error& err) {
+      auto errCode = err.code();
+      std::cerr << "Error code (" << errCode.value()
+                << "), message = " << err.what() << std::endl;
     } catch (...) {
       logger->Log(cppmicroservices::logservice::SeverityLevel::LOG_ERROR,
                   "Failed to enable component with name" + GetName(),
@@ -143,19 +151,20 @@ std::shared_future<void> ComponentManagerImpl::PostAsyncDisabledToEnabled(
   auto reg = GetRegistry();
   auto logger = GetLogger();
 
-  std::packaged_task<void(std::shared_ptr<CMEnabledState>)> task(
+  // see if we can bind stuff here
+  using ActualTask = std::packaged_task<void(std::shared_ptr<CMEnabledState>)>;
+  using PostTask = std::packaged_task<void()>;
+  ActualTask task(
     [metadata, bundle, reg, logger](std::shared_ptr<CMEnabledState> eState) {
       eState->CreateConfigurations(metadata, bundle, reg, logger);
     });
 
-  using Sig = void(std::shared_ptr<CMEnabledState>);
-  using Result = boost::asio::async_result<decltype(task), Sig>;
-  using Handler = typename Result::completion_handler_type;
+  std::shared_ptr<CMEnabledState> enabledState =
+    std::make_shared<CMEnabledState>(task.get_future().share());
 
-  Handler handler(std::forward<decltype(task)>(task));
-  Result result(handler);
-
-  auto enabledState = std::make_shared<CMEnabledState>(result.get().share());
+  PostTask actual_task([enabledState,
+                        taskPtr = std::make_shared<ActualTask>(std::move(
+                          task))]() mutable { (*taskPtr)(enabledState); });
 
   // if this object failed to change state and the current state is DISABLED, try again
   auto succeeded = false;
@@ -166,11 +175,8 @@ std::shared_future<void> ComponentManagerImpl::PostAsyncDisabledToEnabled(
 
   if (succeeded) // succeeded in changing the state
   {
-    boost::asio::post(
-      threadpool->get_executor(),
-      [enabledState, transition = std::move(handler)]() mutable {
-        transition(enabledState);
-      });
+    asyncWorkService->post(std::move(actual_task));
+
     return enabledState->GetFuture();
   }
 
@@ -182,19 +188,15 @@ std::shared_future<void> ComponentManagerImpl::PostAsyncEnabledToDisabled(
   std::shared_ptr<cppmicroservices::scrimpl::ComponentManagerState>&
     currentState)
 {
-  std::packaged_task<void(std::shared_ptr<CMEnabledState>)> task(
-    [](std::shared_ptr<CMEnabledState> enabledState) {
-      enabledState->DeleteConfigurations();
-    });
+  using ActualTask = std::packaged_task<void(std::shared_ptr<CMEnabledState>)>;
+  using PostTask = std::packaged_task<void()>;
 
-  using Sig = void(std::shared_ptr<CMEnabledState>);
-  using Result = boost::asio::async_result<decltype(task), Sig>;
-  using Handler = typename Result::completion_handler_type;
+  ActualTask task([](std::shared_ptr<CMEnabledState> enabledState) mutable {
+    enabledState->DeleteConfigurations();
+  });
 
-  Handler handler(std::forward<decltype(task)>(task));
-  Result result(handler);
-
-  auto disabledState = std::make_shared<CMDisabledState>(result.get().share());
+  auto disabledState =
+    std::make_shared<CMDisabledState>(task.get_future().share());
 
   // if this object failed to change state and the current state is ENABLED, try again
   bool succeeded = false;
@@ -208,11 +210,13 @@ std::shared_future<void> ComponentManagerImpl::PostAsyncEnabledToDisabled(
     std::shared_ptr<CMEnabledState> currEnabledState =
       std::dynamic_pointer_cast<CMEnabledState>(currentState);
 
-    boost::asio::post(
-      threadpool->get_executor(),
-      [currEnabledState, transition = std::move(handler)]() mutable {
-        transition(currEnabledState);
+    PostTask actual_task(
+      [currEnabledState,
+       taskPtr = std::make_shared<ActualTask>(std::move(task))]() mutable {
+        (*taskPtr)(currEnabledState);
       });
+
+    asyncWorkService->post(std::move(actual_task));
 
     auto fut = disabledState->GetFuture();
     AccumulateFuture(fut);
