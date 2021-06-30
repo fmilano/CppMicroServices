@@ -87,13 +87,13 @@ public:
 
 class US_TestInterfaces_EXPORT TestBundleDSDependent
 {
-  public:
+public:
   virtual ~TestBundleDSDependent();
 };
 
 class US_TestInterfaces_EXPORT TestBundleDSUpstreamDependency
 {
-  public:
+public:
   virtual ~TestBundleDSUpstreamDependency();
 };
 
@@ -179,6 +179,13 @@ public:
   virtual cppmicroservices::AnyMap GetProperties() = 0;
   virtual bool isDependencyInjected() = 0;
   virtual ~CAInterface1();
+};
+
+class US_TestInterfaces_EXPORT TestBundleDSMyTest
+{
+public:
+  virtual std::string Description() = 0;
+  virtual ~TestBundleDSMyTest();
 };
 }
 
