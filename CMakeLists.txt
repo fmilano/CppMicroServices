@@ -737,6 +737,7 @@ add_subdirectory(framework)
 add_subdirectory(httpservice)
 add_subdirectory(webconsole)
 add_subdirectory(shellservice)
+add_subdirectory(fileinstall)
 
 # Declarative Services requires threading to function.
 # Static linkage is not yet supported for declarative services.
